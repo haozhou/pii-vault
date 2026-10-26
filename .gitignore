@@ -33,3 +33,7 @@ __pycache__/
 
 # Claude Code local agent files
 .claude/
+
+# Swift package at the root
+/.build/
+/.swiftpm/
