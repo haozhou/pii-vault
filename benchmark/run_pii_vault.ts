@@ -86,7 +86,7 @@ function run() {
   const output = {
     tool: 'pii-vault',
     implementation: 'typescript',
-    version: '0.3.0',
+    version: '0.3.1',
     score_threshold: threshold,
     dataset_size: dataset.length,
     elapsed_ms: Math.round(elapsed),

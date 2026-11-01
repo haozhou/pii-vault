@@ -87,7 +87,7 @@ let medianPass = median(passes)
 let output: [String: Any] = [
     "tool": "pii-vault-swift",
     "implementation": "swift",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "score_threshold": threshold,
     "dataset_size": dataset.count,
     "elapsed_ms": round3(firstPassMs),
