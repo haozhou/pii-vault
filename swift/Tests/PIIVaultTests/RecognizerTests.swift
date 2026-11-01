@@ -260,3 +260,41 @@ struct SplitMix64: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 }
+
+/// Shared with the Rust and TypeScript tests: the same cases, the same answers.
+@Suite struct ContextWordTests {
+    @Test(arguments: [
+        ("tel: 555 1234", "tel", true),
+        ("hotel 555 1234", "tel", false),
+        ("the hotel tel line", "tel", true),
+        ("valid until", "id", false),
+        ("id: 42", "id", true),
+        ("aws_secret_access_key=", "secret", true),
+        ("e-mail me", "mail", true),
+        ("accounts", "account", true),
+        ("calls", "call", true),
+        ("callsign", "call", false),
+        ("ids", "id", true),
+        ("联系电话：", "电话", true),
+        ("phone号码", "phone", true),
+        ("주민등록번호는", "주민등록번호", true),
+        ("bass#1", "ss#", false),
+        ("ss#123", "ss#", true),
+        ("\u{1D400}tel", "tel", false),
+        ("tel\u{1D400}", "tel", false),
+        ("anything", "", true),
+    ])
+    func matchesWholeWords(window: String, word: String, expected: Bool) {
+        #expect(containsWord(window as NSString, word) == expected)
+    }
+
+    @Test func aContextWordInsideALongerWordDoesNotBoost() throws {
+        let rec = try RegexRecognizer(jsonString: """
+        {"name": "phone", "entity_type": "PHONE_NUMBER", "version": "1.0.0",
+         "patterns": [{"name": "us", "regex": "\\\\d{3}-\\\\d{4}", "score": 0.4}],
+         "context_words": ["tel"], "context_score_boost": 0.4}
+        """)
+        #expect(abs(rec.analyze("Tel: 555-1234", entities: [])[0].score - 0.8) < 1e-9)
+        #expect(abs(rec.analyze("Hotel room 555-1234", entities: [])[0].score - 0.4) < 1e-9)
+    }
+}

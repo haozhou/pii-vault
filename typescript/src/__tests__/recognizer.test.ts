@@ -1,4 +1,4 @@
-import { RegexRecognizer, luhnCheck, cnIdCheck } from '../recognizer';
+import { RegexRecognizer, luhnCheck, cnIdCheck, containsWord } from '../recognizer';
 import { EntityType } from '../entity';
 
 describe('RegexRecognizer', () => {
@@ -131,5 +131,44 @@ describe('Validators', () => {
 
   test('Chinese ID invalid', () => {
     expect(cnIdCheck('110105194912310020')).toBe(false);
+  });
+});
+
+describe('context words match whole words', () => {
+  // Shared with the Rust and Swift tests: the same cases, the same answers.
+  const cases: Array<[string, string, boolean]> = [
+    ['tel: 555 1234', 'tel', true],
+    ['hotel 555 1234', 'tel', false],
+    ['the hotel tel line', 'tel', true],
+    ['valid until', 'id', false],
+    ['id: 42', 'id', true],
+    ['aws_secret_access_key=', 'secret', true],
+    ['e-mail me', 'mail', true],
+    ['accounts', 'account', true],
+    ['calls', 'call', true],
+    ['callsign', 'call', false],
+    ['ids', 'id', true],
+    ['联系电话：', '电话', true],
+    ['phone号码', 'phone', true],
+    ['주민등록번호는', '주민등록번호', true],
+    ['bass#1', 'ss#', false],
+    ['ss#123', 'ss#', true],
+    ['\u{1D400}tel', 'tel', false],
+    ['tel\u{1D400}', 'tel', false],
+    ['anything', '', true],
+  ];
+  test.each(cases)('%j contains %j: %s', (window, word, expected) => {
+    expect(containsWord(window, word)).toBe(expected);
+  });
+
+  test('a context word inside a longer word does not boost', () => {
+    const rec = new RegexRecognizer({
+      name: 'phone', entity_type: 'PHONE_NUMBER', version: '1.0.0',
+      patterns: [{ name: 'us', regex: '\\d{3}-\\d{4}', score: 0.4 }],
+      context_words: ['tel'], context_score_boost: 0.4,
+    });
+    const score = (text: string) => rec.analyze(text, [])[0].score;
+    expect(score('Tel: 555-1234')).toBeCloseTo(0.8);
+    expect(score('Hotel room 555-1234')).toBeCloseTo(0.4);
   });
 });

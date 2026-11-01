@@ -81,8 +81,8 @@ public struct RecognizerDefinition: Hashable, Sendable, Codable {
 }
 
 /// A recognizer driven by a ``RecognizerDefinition``: regex patterns, optional checksum
-/// validators, a deny list, and context words that boost the score when found within
-/// 100 UTF-16 units of a match.
+/// validators, a deny list, and context words that boost the score when found, as whole
+/// words, within 100 UTF-16 units of a match.
 public final class RegexRecognizer: Recognizer, @unchecked Sendable {
     // Immutable after init; NSRegularExpression is documented as thread-safe.
     public let definition: RecognizerDefinition
@@ -183,9 +183,69 @@ public final class RegexRecognizer: Recognizer, @unchecked Sendable {
         let windowEnd = min(text.length, NSMaxRange(range) + 100)
         let window = text.substring(with: NSRange(location: windowStart, length: windowEnd - windowStart))
             .lowercased() as NSString
-        // An empty context word always matches, as with Rust's `str::contains("")`.
-        return lowercasedContextWords.contains { $0.isEmpty || window.range(of: $0, options: .literal).location != NSNotFound }
+        return lowercasedContextWords.contains { containsWord(window, $0) }
     }
+}
+
+/// Scripts written without spaces between words: Thai, Lao, Myanmar, Khmer, Hangul (whose
+/// particles join the word before), Japanese kana and CJK ideographs. A context word in
+/// one matches anywhere, as there is no word edge to look for.
+private func isUnspacedScript(_ c: UInt32) -> Bool {
+    switch c {
+    case 0x0E00...0x0EFF, 0x1000...0x109F, 0x1100...0x11FF, 0x1780...0x17FF,
+         0x3040...0x30FF, 0x3130...0x318F, 0x31F0...0x31FF, 0x3400...0x4DBF,
+         0x4E00...0x9FFF, 0xAC00...0xD7AF, 0xF900...0xFAFF, 0xFF66...0xFF9F,
+         0x20000...0x3FFFF: true
+    default: false
+    }
+}
+
+/// Letters and digits make up a word; spaces, punctuation, `_` and `-` end one. As Rust's
+/// `char::is_alphanumeric`: alphabetic, or a number of any kind.
+private func isWordChar(_ scalar: Unicode.Scalar?) -> Bool {
+    guard let scalar else { return false }
+    return (scalar.properties.isAlphabetic || scalar.properties.numericType != nil) && !isUnspacedScript(scalar.value)
+}
+
+/// The scalar that ends just before UTF-16 index `i`, and the one that starts at it.
+private func scalar(before i: Int, in s: NSString) -> Unicode.Scalar? {
+    guard i > 0 else { return nil }
+    let low = s.character(at: i - 1)
+    if UTF16.isTrailSurrogate(low), i >= 2, case let high = s.character(at: i - 2), UTF16.isLeadSurrogate(high) {
+        return Unicode.Scalar(UTF16.decode(UTF16.EncodedScalar([high, low])).value)
+    }
+    return Unicode.Scalar(low)
+}
+private func scalar(at i: Int, in s: NSString) -> Unicode.Scalar? {
+    guard i < s.length else { return nil }
+    let high = s.character(at: i)
+    if UTF16.isLeadSurrogate(high), i + 1 < s.length, case let low = s.character(at: i + 1), UTF16.isTrailSurrogate(low) {
+        return Unicode.Scalar(UTF16.decode(UTF16.EncodedScalar([high, low])).value)
+    }
+    return Unicode.Scalar(high)
+}
+
+/// Whether `word` occurs in `window` as a whole word: not inside a longer one, so "tel"
+/// is not found in "hotel" nor "id" in "valid". An English plural counts as the word ("calls",
+/// "accounts"), and an edge of the window as a word edge.
+/// An empty word always matches, as with Rust's `str::contains("")`.
+func containsWord(_ window: NSString, _ word: String) -> Bool {
+    guard !word.isEmpty else { return true }
+    let target = word as NSString
+    let checkStart = isWordChar(scalar(at: 0, in: target)), checkEnd = isWordChar(scalar(before: target.length, in: target))
+    let plural = scalar(before: target.length, in: target).map { $0.isASCII && $0.properties.isAlphabetic } ?? false
+    var from = 0
+    while from < window.length {
+        let found = window.range(of: word, options: .literal, range: NSRange(location: from, length: window.length - from))
+        guard found.location != NSNotFound else { return false }
+        let startsWord = !checkStart || !isWordChar(scalar(before: found.location, in: window))
+        var end = NSMaxRange(found)
+        if plural, end < window.length, window.character(at: end) == UInt16(UInt8(ascii: "s")) { end += 1 }
+        let endsWord = !checkEnd || !isWordChar(scalar(at: end, in: window))
+        if startsWord && endsWord { return true }
+        from = found.location + 1
+    }
+    return false
 }
 
 /// Copies `text` into an `NSString` with contiguous UTF-16 storage. Bridging a native (UTF-8)

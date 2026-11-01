@@ -29,7 +29,7 @@ Spec-driven PII and secret detection with **71 recognizers** (47 PII across 15+ 
 - **Shared spec**: Recognizer patterns defined as JSON, consumed by all language implementations
 - **Vault**: Deterministic, reversible tokenization with collision handling and context disambiguation
 - **5 anonymization strategies**: Replace, Mask, Hash, Redact, Vault
-- **Context-aware scoring**: Boost detection confidence when context words appear nearby
+- **Context-aware scoring**: Boost detection confidence when context words appear nearby, as whole words or their plural with "s" ("call" counts in "Calls: …" but "tel" not in "hotel"; Chinese, Japanese, Korean and Thai words match anywhere)
 - **Zero runtime dependencies** beyond regex and JSON parsing
 - **224 tests** across Rust, TypeScript and Swift
 

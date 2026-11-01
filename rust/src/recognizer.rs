@@ -38,6 +38,48 @@ pub struct RegexRecognizer {
     entity: EntityType,
 }
 
+/// Scripts written without spaces between words: Thai, Lao, Myanmar, Khmer, Hangul (whose
+/// particles join the word before), Japanese kana and CJK ideographs. A context word in
+/// one matches anywhere, as there is no word edge to look for.
+fn is_unspaced_script(c: char) -> bool {
+    matches!(c as u32,
+        0x0E00..=0x0EFF | 0x1000..=0x109F | 0x1100..=0x11FF | 0x1780..=0x17FF
+        | 0x3040..=0x30FF | 0x3130..=0x318F | 0x31F0..=0x31FF | 0x3400..=0x4DBF
+        | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF66..=0xFF9F
+        | 0x20000..=0x3FFFF)
+}
+
+/// Letters and digits make up a word; spaces, punctuation, `_` and `-` end one.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() && !is_unspaced_script(c)
+}
+
+/// Whether `word` occurs in `window` as a whole word: not inside a longer one, so "tel"
+/// is not found in "hotel" nor "id" in "valid". An English plural counts as the word ("calls",
+/// "accounts"), and an edge of the window as a word edge.
+pub(crate) fn contains_word(window: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return true;
+    }
+    let check_start = word.chars().next().map_or(false, is_word_char);
+    let check_end = word.chars().next_back().map_or(false, is_word_char);
+    let plural = word.chars().next_back().map_or(false, |c| c.is_ascii_alphabetic());
+    let step = word.chars().next().map_or(1, char::len_utf8);
+    let mut from = 0;
+    while let Some(found) = window[from..].find(word) {
+        let start = from + found;
+        let end = start + word.len();
+        let starts_word = !check_start || !window[..start].chars().next_back().map_or(false, is_word_char);
+        let end = if plural && window[end..].starts_with('s') { end + 1 } else { end };
+        let ends_word = !check_end || !window[end..].chars().next().map_or(false, is_word_char);
+        if starts_word && ends_word {
+            return true;
+        }
+        from = start + step;
+    }
+    false
+}
+
 impl RegexRecognizer {
     pub fn from_def(def: RecognizerDef) -> Result<Self, regex::Error> {
         let mut compiled = Vec::new();
@@ -61,7 +103,7 @@ impl RegexRecognizer {
         let window_start = start.saturating_sub(100);
         let window_end = (end + 100).min(text.len());
         let window = &text[window_start..window_end].to_lowercase();
-        self.def.context_words.iter().any(|w| window.contains(&w.to_lowercase()))
+        self.def.context_words.iter().any(|w| contains_word(window, &w.to_lowercase()))
     }
 
     fn is_denied(&self, matched: &str) -> bool {
@@ -305,6 +347,47 @@ pub fn load_recognizers_from_dir(dir: &std::path::Path) -> Vec<Box<dyn Recognize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shared with the TypeScript and Swift tests: the same cases, the same answers.
+    #[test]
+    fn test_context_words_match_whole_words() {
+        let cases = [
+            ("tel: 555 1234", "tel", true),
+            ("hotel 555 1234", "tel", false),
+            ("the hotel tel line", "tel", true),
+            ("valid until", "id", false),
+            ("id: 42", "id", true),
+            ("aws_secret_access_key=", "secret", true),
+            ("e-mail me", "mail", true),
+            ("accounts", "account", true),
+            ("calls", "call", true),
+            ("callsign", "call", false),
+            ("ids", "id", true),
+            ("联系电话：", "电话", true),
+            ("phone号码", "phone", true),
+            ("주민등록번호는", "주민등록번호", true),
+            ("bass#1", "ss#", false),
+            ("ss#123", "ss#", true),
+            ("\u{1D400}tel", "tel", false),
+            ("tel\u{1D400}", "tel", false),
+            ("anything", "", true),
+        ];
+        for (window, word, expected) in cases {
+            assert_eq!(contains_word(window, word), expected, "{word:?} in {window:?}");
+        }
+    }
+
+    #[test]
+    fn test_context_inside_a_longer_word_does_not_boost() {
+        let rec = RegexRecognizer::from_json(r#"{
+            "name": "phone", "entity_type": "PHONE_NUMBER", "version": "1.0.0",
+            "patterns": [{"name": "us", "regex": "\\d{3}-\\d{4}", "score": 0.4}],
+            "context_words": ["tel"], "context_score_boost": 0.4
+        }"#).unwrap();
+        let score = |text: &str| rec.analyze(text, &[])[0].score;
+        assert!((score("Tel: 555-1234") - 0.8).abs() < 1e-9);
+        assert!((score("Hotel room 555-1234") - 0.4).abs() < 1e-9);
+    }
 
     #[test]
     fn test_luhn_valid() {

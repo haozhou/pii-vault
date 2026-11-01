@@ -24,6 +24,57 @@ export interface RecognizerDef {
   supported_languages?: string[] | null;
 }
 
+/**
+ * Scripts written without spaces between words: Thai, Lao, Myanmar, Khmer, Hangul (whose
+ * particles join the word before), Japanese kana and CJK ideographs. A context word in
+ * one matches anywhere, as there is no word edge to look for.
+ */
+function isUnspacedScript(c: number): boolean {
+  return (c >= 0x0E00 && c <= 0x0EFF) || (c >= 0x1000 && c <= 0x109F) || (c >= 0x1100 && c <= 0x11FF)
+    || (c >= 0x1780 && c <= 0x17FF) || (c >= 0x3040 && c <= 0x30FF) || (c >= 0x3130 && c <= 0x318F)
+    || (c >= 0x31F0 && c <= 0x31FF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF)
+    || (c >= 0xAC00 && c <= 0xD7AF) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF66 && c <= 0xFF9F)
+    || (c >= 0x20000 && c <= 0x3FFFF);
+}
+
+const LETTER_OR_DIGIT = /[\p{Alphabetic}\p{N}]/u;
+
+/** Letters and digits make up a word; spaces, punctuation, `_` and `-` end one. */
+function isWordChar(c: number | undefined): boolean {
+  return c !== undefined && LETTER_OR_DIGIT.test(String.fromCodePoint(c)) && !isUnspacedScript(c);
+}
+
+/** The code point that ends just before UTF-16 index `i`. */
+function codePointBefore(s: string, i: number): number | undefined {
+  if (i <= 0) return undefined;
+  const low = s.charCodeAt(i - 1);
+  if (low >= 0xDC00 && low <= 0xDFFF && i >= 2) {
+    const high = s.charCodeAt(i - 2);
+    if (high >= 0xD800 && high <= 0xDBFF) return s.codePointAt(i - 2);
+  }
+  return low;
+}
+
+/**
+ * Whether `word` occurs in `window` as a whole word: not inside a longer one, so "tel"
+ * is not found in "hotel" nor "id" in "valid". An English plural counts as the word ("calls",
+ * "accounts"), and an edge of the window as a word edge.
+ */
+export function containsWord(window: string, word: string): boolean {
+  if (word.length === 0) return true;
+  const checkStart = isWordChar(word.codePointAt(0));
+  const checkEnd = isWordChar(codePointBefore(word, word.length));
+  const plural = /[a-z]$/i.test(word);
+  for (let start = window.indexOf(word); start !== -1; start = window.indexOf(word, start + 1)) {
+    let end = start + word.length;
+    if (plural && window[end] === 's') end += 1;
+    const startsWord = !checkStart || !isWordChar(codePointBefore(window, start));
+    const endsWord = !checkEnd || !isWordChar(window.codePointAt(end));
+    if (startsWord && endsWord) return true;
+  }
+  return false;
+}
+
 export class RegexRecognizer implements Recognizer {
   readonly name: string;
   readonly supportedEntities: EntityType[];
@@ -91,7 +142,7 @@ export class RegexRecognizer implements Recognizer {
     const windowStart = Math.max(0, start - 100);
     const windowEnd = Math.min(text.length, end + 100);
     const window = text.slice(windowStart, windowEnd).toLowerCase();
-    return this.contextWords.some(w => window.includes(w));
+    return this.contextWords.some(w => containsWord(window, w));
   }
 
   private validate(matched: string): boolean {
