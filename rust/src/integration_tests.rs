@@ -51,6 +51,18 @@ mod tests {
     }
 
     #[test]
+    fn test_us_bank_number_needs_context() {
+        let recs = load_spec_recognizers();
+        let analyzer = Analyzer::new(recs);
+        let banks = |text: &str| analyzer.analyze(text, &[], 0.5).entities.iter()
+            .filter(|e| e.entity_type.as_str() == "US_BANK_NUMBER")
+            .map(|e| text[e.start..e.end].to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(banks("Regular Checking 98765432101"), vec!["98765432101"]);
+        assert_eq!(banks("Order 98765432101 has shipped"), Vec::<String>::new());
+    }
+
+    #[test]
     fn test_cn_id_detection() {
         let recs = load_spec_recognizers();
         let analyzer = Analyzer::new(recs);

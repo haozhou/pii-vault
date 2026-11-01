@@ -17,6 +17,7 @@
     { "name": "US_PASSPORT", "description": "US Passport number" },
     { "name": "US_DRIVER_LICENSE", "description": "US Driver's License number" },
     { "name": "US_BANK_ROUTING", "description": "US Bank routing number (ABA)" },
+    { "name": "US_BANK_NUMBER", "description": "US bank account number" },
     { "name": "UK_NHS", "description": "UK National Health Service number" },
     { "name": "UK_NINO", "description": "UK National Insurance Number" },
     { "name": "CN_ID_CARD", "description": "Chinese Resident Identity Card (18-digit)" },

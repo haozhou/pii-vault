@@ -88,6 +88,14 @@ import Testing
         #expect(specAnalyzer.analyze("Send to alice@company.org").entities.count == 1)
     }
 
+    @Test func usBankNumberNeedsContext() {
+        func banks(_ text: String) -> [String] {
+            entities(specAnalyzer.analyze(text, scoreThreshold: 0.5), ofType: "US_BANK_NUMBER").compactMap { $0.text(in: text) }
+        }
+        #expect(banks("Regular Checking 98765432101") == ["98765432101"])
+        #expect(banks("Order 98765432101 has shipped") == [])
+    }
+
     @Test func multipleEmails() {
         #expect(entities(specAnalyzer.analyze("alice@test.com and bob@test.com"), ofType: "EMAIL_ADDRESS").count == 2)
     }

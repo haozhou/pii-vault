@@ -41,6 +41,14 @@ describe('Integration: Spec-loaded recognizers', () => {
     expect(ssns.length).toBeGreaterThanOrEqual(1);
   });
 
+  test('detects a US bank account number only with context', () => {
+    const banks = (text: string) => analyzer.analyze(text, [], 0.5).entities
+      .filter(e => e.entityType.name === 'US_BANK_NUMBER')
+      .map(e => text.slice(e.start, e.end));
+    expect(banks('Regular Checking 98765432101')).toEqual(['98765432101']);
+    expect(banks('Order 98765432101 has shipped')).toEqual([]);
+  });
+
   test('detects Chinese ID card', () => {
     const result = analyzer.analyze('身份证号: 11010519491231002X');
     const ids = result.entities.filter(e => e.entityType.name === 'CN_ID_CARD');
